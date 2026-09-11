@@ -27,8 +27,14 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: 更新股票列表
-        run: python3 scripts/fetch_stocks.py
+      - name: 更新股票列表（仅当为空时）
+        run: |
+          if [ ! -s data/stocks.json ] || [ "$(python3 -c "import json; print(len(json.load(open('data/stocks.json'))))")" -lt 100 ]; then
+            echo "股票列表为空或不完整，重新拉取"
+            python3 scripts/fetch_stocks.py
+          else
+            echo "股票列表已存在，跳过拉取"
+          fi
 
       - name: 增量拉取股价
         run: python3 scripts/fetch_prices.py --workers 6
