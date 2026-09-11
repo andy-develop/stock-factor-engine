@@ -32,7 +32,7 @@ jobs:
         run: python3 scripts/fetch_stocks.py
 
       - name: 增量拉取股价
-        run: python3 scripts/fetch_prices.py --workers 12
+        run: python3 scripts/fetch_prices.py --workers 6
         env:
           PYTHONUNBUFFERED: 1
 
