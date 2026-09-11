@@ -77,8 +77,47 @@ jobs:
           echo '{"api_key":"${{ secrets.HSK_API_KEY }}","scene":"file_hosting"}' > ~/.hsk/api_key.json
 
       - name: 推送到文件托管
+        id: deploy
         run: |
-          # 推送 index.html（单文件）
-          hsk-cli +host index.html --entry-file index.html --format json
+          # 推送 index.html，保存输出到文件
+          hsk-cli +host index.html --entry-file index.html --format json 2>&1 | tee /tmp/hsk_output.json
+          # 解析 resource_id 和 verify_code（从 stdout 字段的 JSON 中提取）
+          python3 -c "
+import json, re
+raw = open('/tmp/hsk_output.json').read()
+# 提取 stdout 字段中的 JSON
+m = re.search(r'\"stdout\":\\s*\"(.*?)\"\\s*[,}]', raw, re.DOTALL)
+if m:
+    inner = m.group(1).encode().decode('unicode_escape')
+    d = json.loads(inner)
+    data = d.get('data', {})
+    print(f\"RESOURCE_ID={data.get('resource_id','')}\")
+    print(f\"VERIFY_CODE={data.get('verify_code','')}\")
+    print(f\"PUBLIC_URL={data.get('public_url','')}\")
+    with open('/tmp/hsk_env.sh', 'w') as f:
+        f.write(f\"RESOURCE_ID={data.get('resource_id','')}\\n\")
+        f.write(f\"VERIFY_CODE={data.get('verify_code','')}\\n\")
+        f.write(f\"PUBLIC_URL={data.get('public_url','')}\\n\")
+"
+          cat /tmp/hsk_env.sh >> $GITHUB_OUTPUT
         env:
           HSK_API_KEY: ${{ secrets.HSK_API_KEY }}
+
+      - name: 自动认领资源
+        run: |
+          echo "认领资源: ${{ steps.deploy.outputs.RESOURCE_ID }}"
+          hsk-cli file-hosting-bind --resource-id "${{ steps.deploy.outputs.RESOURCE_ID }}" --verify-code "${{ steps.deploy.outputs.VERIFY_CODE }}" 2>&1 || echo "认领失败，资源可能已认领"
+
+      - name: 记录部署URL到仓库
+        run: |
+          URL="${{ steps.deploy.outputs.PUBLIC_URL }}"
+          echo "# 最新部署地址" > DEPLOY.md
+          echo "" >> DEPLOY.md
+          echo "- 部署时间: $(date -u '+%Y-%m-%d %H:%M UTC')" >> DEPLOY.md
+          echo "- 访问地址: ${URL}" >> DEPLOY.md
+          echo "- Resource ID: ${{ steps.deploy.outputs.RESOURCE_ID }}" >> DEPLOY.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add DEPLOY.md
+          git commit -m "chore: 更新部署地址 ${URL}" || echo "无变化"
+          git push || echo "推送失败"
