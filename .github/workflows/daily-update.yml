@@ -1,13 +1,12 @@
 name: 每日数据更新与部署
 
-on:
+"on":
   schedule:
-    # 北京时间每日 18:00（A股收盘后）= UTC 10:00
-    - cron: '0 10 * * 1-5'  # 周一到周五
-  workflow_dispatch:  # 支持手动触发
+    - cron: '0 10 * * 1-5'
+  workflow_dispatch:
 
 permissions:
-  contents: write  # 允许提交数据回仓库
+  contents: write
 
 jobs:
   update-and-deploy:
@@ -48,7 +47,7 @@ jobs:
           echo "股票数量: $(python3 -c "import json; print(len(json.load(open('data/stocks.json'))))")"
           echo "因子数量: $(python3 -c "import json; print(len(json.load(open('data/factors.json'))))")"
 
-      - name: 提交数据回仓库（增量更新）
+      - name: 提交数据回仓库
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -74,41 +73,23 @@ jobs:
       - name: 配置 hsk-cli API Key
         run: |
           mkdir -p ~/.hsk
-          echo '{"api_key":"${{ secrets.HSK_API_KEY }}","scene":"file_hosting"}' > ~/.hsk/api_key.json
+          echo "{\"api_key\":\"${{ secrets.HSK_API_KEY }}\",\"scene\":\"file_hosting\"}" > ~/.hsk/api_key.json
 
       - name: 推送到文件托管
         id: deploy
         run: |
-          # 推送 index.html，保存输出到文件
           hsk-cli +host index.html --entry-file index.html --format json 2>&1 | tee /tmp/hsk_output.json
-          # 解析 resource_id 和 verify_code（从 stdout 字段的 JSON 中提取）
-          python3 -c "
-import json, re
-raw = open('/tmp/hsk_output.json').read()
-# 提取 stdout 字段中的 JSON
-m = re.search(r'\"stdout\":\\s*\"(.*?)\"\\s*[,}]', raw, re.DOTALL)
-if m:
-    inner = m.group(1).encode().decode('unicode_escape')
-    d = json.loads(inner)
-    data = d.get('data', {})
-    print(f\"RESOURCE_ID={data.get('resource_id','')}\")
-    print(f\"VERIFY_CODE={data.get('verify_code','')}\")
-    print(f\"PUBLIC_URL={data.get('public_url','')}\")
-    with open('/tmp/hsk_env.sh', 'w') as f:
-        f.write(f\"RESOURCE_ID={data.get('resource_id','')}\\n\")
-        f.write(f\"VERIFY_CODE={data.get('verify_code','')}\\n\")
-        f.write(f\"PUBLIC_URL={data.get('public_url','')}\\n\")
-"
-          cat /tmp/hsk_env.sh >> $GITHUB_OUTPUT
+          python3 scripts/parse_hsk_output.py /tmp/hsk_output.json >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
         env:
           HSK_API_KEY: ${{ secrets.HSK_API_KEY }}
 
       - name: 自动认领资源
         run: |
           echo "认领资源: ${{ steps.deploy.outputs.RESOURCE_ID }}"
-          hsk-cli file-hosting-bind --resource-id "${{ steps.deploy.outputs.RESOURCE_ID }}" --verify-code "${{ steps.deploy.outputs.VERIFY_CODE }}" 2>&1 || echo "认领失败，资源可能已认领"
+          hsk-cli file-hosting-bind --resource-id "${{ steps.deploy.outputs.RESOURCE_ID }}" --verify-code "${{ steps.deploy.outputs.VERIFY_CODE }}" 2>&1 || echo "认领失败或已认领"
 
-      - name: 记录部署URL到仓库
+      - name: 记录部署URL
         run: |
           URL="${{ steps.deploy.outputs.PUBLIC_URL }}"
           echo "# 最新部署地址" > DEPLOY.md
@@ -119,5 +100,5 @@ if m:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add DEPLOY.md
-          git commit -m "chore: 更新部署地址 ${URL}" || echo "无变化"
+          git commit -m "chore: 更新部署地址" || echo "无变化"
           git push || echo "推送失败"
