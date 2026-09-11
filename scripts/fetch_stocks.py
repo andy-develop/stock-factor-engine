@@ -24,7 +24,7 @@ NODES = [
 # 全板块：深市主板、创业板、北交所、沪市主板、科创板
 FS = "m:0+t:6,m:0+t:80,m:0+t:81,m:1+t:2,m:1+t:23"
 
-def fetch_page(pn, pz=200):
+def fetch_page(pn, pz=100):
     last_err = None
     for node in NODES:
         url = (f"{node}/api/qt/clist/get?"
@@ -57,7 +57,7 @@ def main():
         sys.exit(1)
 
     print(f"全 A 股总数: {total}")
-    pz = 200
+    pz = 100
     pages = (total + pz - 1) // pz
     stocks = []
     for pn in range(1, pages + 1):
